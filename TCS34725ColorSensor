@@ -1,0 +1,115 @@
+from machine import Pin, I2C
+import time
+
+# TCS34725 I2C address
+TCS34725_ADDRESS = 0x29
+
+# TCS34725 registers
+TCS34725_ENABLE = 0x00
+TCS34725_ATIME = 0x01
+TCS34725_CONTROL = 0x0F
+TCS34725_ID = 0x12
+TCS34725_STATUS = 0x13
+TCS34725_CDATAL = 0x14
+TCS34725_CDATAH = 0x15
+TCS34725_RDATAL = 0x16
+TCS34725_RDATAH = 0x17
+TCS34725_GDATAL = 0x18
+TCS34725_GDATAH = 0x19
+TCS34725_BDATAL = 0x1A
+TCS34725_BDATAH = 0x1B
+TCS34725_ENABLE_PON = 0x01
+TCS34725_ENABLE_AEN = 0x02
+
+# Command bit
+TCS34725_COMMAND_BIT = 0x80
+
+# Initialization of the I2C interface
+i2c = I2C(1, scl=Pin(7), sda=Pin(6), freq=400000)  # Adjust pins if necessary
+
+def write_register(register, value):
+    i2c.writeto_mem(TCS34725_ADDRESS, TCS34725_COMMAND_BIT | register, bytes([value]))
+
+def read_register(register):
+    return i2c.readfrom_mem(TCS34725_ADDRESS, TCS34725_COMMAND_BIT | register, 1)[0]
+
+def read_register_word(register):
+    low = read_register(register)
+    high = read_register(register + 1)
+    return (high << 8) | low
+
+def enable_tcs34725():
+    write_register(TCS34725_ENABLE, TCS34725_ENABLE_PON)
+    time.sleep(0.01)
+    write_register(TCS34725_ENABLE, TCS34725_ENABLE_PON | TCS34725_ENABLE_AEN)
+    time.sleep(0.01)
+
+def get_sensor_id():
+    return read_register(TCS34725_ID)
+
+def set_integration_time(time):
+    write_register(TCS34725_ATIME, time)
+
+def set_gain(gain):
+    write_register(TCS34725_CONTROL, gain)
+
+# Initialization with retry
+for attempt in range(5):
+    print(f"Attempt {attempt + 1}: Enabling TCS34725...")
+    enable_tcs34725()
+    time.sleep(0.1)  # Increased delay for stability
+    print("Setting integration time...")
+    set_integration_time(0xEB)
+    time.sleep(0.1)
+    print("Setting gain...")
+    set_gain(0x01)
+    time.sleep(0.1)
+    sensor_id = get_sensor_id()
+    print(f"Sensor ID read: {sensor_id:#x}")  # Print sensor ID in hex
+    if sensor_id == 0x4D:  # Recognize the sensor ID 0x4D
+        print("TCS34725 found!")
+        break
+    else:
+        print("TCS34725 not found! Retrying...")
+        time.sleep(1)
+else:
+    print("TCS34725 not found after multiple attempts!")
+
+# Check if sensor was detected before proceeding
+if sensor_id != 0x4D:
+    print("Exiting because the sensor was not detected.")
+    exit()
+
+def read_rgbc():
+    r = read_register_word(TCS34725_RDATAL)
+    g = read_register_word(TCS34725_GDATAL)
+    b = read_register_word(TCS34725_BDATAL)
+    c = read_register_word(TCS34725_CDATAL)
+    return r, g, b, c
+
+def is_color_red(r, g, b):
+    return r > 1.5 * g and r > 1.5 * b
+
+def is_color_gray(r, g, b):
+    return r > 1 * g and r > 1.1 * b
+
+previous_color = None
+previous_time = time.time()
+
+while True:
+    print("Reading color data...")
+    r, g, b, c = read_rgbc()
+    print(f"Red: {r}, Green: {g}, Blue: {b}, Clear: {c}")
+    
+    current_color = 'Red' if is_color_red(r, g, b) else 'Gray' if is_color_gray(r, g, b) else 'Unknown'
+    
+    if current_color != previous_color:
+        current_time = time.time()
+        time_diff = current_time - previous_time
+        print(f"Color change detected: {previous_color} to {current_color} | Red: {r} | Green: {g} | Blue: {b} | Clear: {c} | Time between changes: {time_diff:.2f} seconds")
+        previous_color = current_color
+        previous_time = current_time
+
+    print(f"Detected color: {current_color} | Red: {r} | Green: {g} | Blue: {b} | Clear: {c}")
+    
+    time.sleep(0.5)
