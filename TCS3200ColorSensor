@@ -1,0 +1,91 @@
+from machine import Pin, Timer
+import time
+
+# Pin definitions
+s2 = Pin(20, Pin.OUT)
+s3 = Pin(19, Pin.OUT)
+signal = Pin(18, Pin.IN)
+NUM_CYCLES = 20  # Increased cycles for better accuracy
+
+# Previous and current color flags
+previous_color = None
+current_color = None
+
+# Time tracking
+previous_time = time.time()
+
+def setup():
+    print("Setting up...")
+    signal.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING, handler=color_interrupt)
+
+def color_interrupt(pin):
+    pass  # Interrupt handler not needed for this implementation
+
+def read_color():
+    # Read Red
+    s2.low()
+    s3.low()
+    time.sleep(0.1)  # Reduced sleep duration
+    duration = signal_pulse_width()
+    red = NUM_CYCLES / (duration / 1000000) if duration != 0 else 0
+
+    # Read Green
+    s2.high()
+    s3.high()
+    time.sleep(0.1)  # Reduced sleep duration
+    duration = signal_pulse_width()
+    green = NUM_CYCLES / (duration / 1000000) if duration != 0 else 0
+
+    # Read Blue
+    s2.low()
+    s3.high()
+    time.sleep(0.1)  # Reduced sleep duration
+    duration = signal_pulse_width()
+    blue = NUM_CYCLES / (duration / 1000000) if duration != 0 else 0
+
+    return red, green, blue
+
+def signal_pulse_width():
+    start = time.ticks_us()
+    for _ in range(NUM_CYCLES):
+        while signal.value() == 0:
+            pass
+        while signal.value() == 1:
+            pass
+    return time.ticks_diff(time.ticks_us(), start)
+
+def determine_color(r, g, b):
+    # Adjusted thresholds based on provided measurements
+    if r > 1.3 * g and r > 1.5 * b and r > 4500:  # Red object detection
+        return "Red"
+    elif r > 1.3 * g and r > 1.5 * b:  # Gray object detection with red majority
+        return "Gray"
+    else:
+        return "Unknown"
+
+def loop():
+    global previous_color, current_color, previous_time
+
+    while True:
+        r, g, b = read_color()
+        current_color = determine_color(r, g, b)
+        
+        current_time = time.time()
+        
+        if current_color != previous_color:
+            time_diff = current_time - previous_time
+            print(f"Color change detected: {previous_color} to {current_color} | Red: {r} | Green: {g} | Blue: {b} | Time between changes: {time_diff:.2f} seconds")
+            previous_color = current_color
+            previous_time = current_time
+        
+        time.sleep(1)  # Adjust sleep duration as needed
+
+def endprogram():
+    pass  # No cleanup needed in MicroPython
+
+if __name__ == '__main__':
+    setup()
+    try:
+        loop()
+    except KeyboardInterrupt:
+        endprogram()
